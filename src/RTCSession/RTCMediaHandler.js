@@ -48,6 +48,12 @@ RTCMediaHandler.prototype = {
       },
       constraints
     );
+    
+    if (this.peerConnection.iceGatheringState === 'complete' && this.peerConnection.iceConnectionState === 'connected') {
+      window.setTimeout(function(){
+        self.onIceCompleted();
+      },0);
+    }
   },
 
   createAnswer: function(onSuccess, onFailure, constraints) {
@@ -76,6 +82,12 @@ RTCMediaHandler.prototype = {
       },
       constraints
     );
+    
+    if (this.peerConnection.iceGatheringState === 'complete' && this.peerConnection.iceConnectionState === 'connected') {
+      window.setTimeout(function(){
+        self.onIceCompleted();
+      },0);
+    }
   },
 
   setLocalDescription: function(sessionDescription, onFailure) {
