@@ -504,14 +504,21 @@ RTCSession.prototype.unmute = function(options) {
     videoUnMuted = false;
   
   if (this.audioMuted === true && options.audio) {
+    audioUnMuted = true;
     this.audioMuted = false;
-    this.toogleMuteAudio(false);
+    
+    if (this.local_hold === false) {
+      this.toogleMuteAudio(false);
+    }
   }
   
   if (this.videoMuted === true && options.video) {
     videoUnMuted = true;
     this.videoMuted = false;
-    this.toogleMuteVideo(false);
+    
+    if (this.local_hold === false) {
+      this.toogleMuteVideo(false);
+    }
   }
   
   if (audioUnMuted === true || videoUnMuted === true) {
