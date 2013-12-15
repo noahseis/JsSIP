@@ -71,6 +71,49 @@ RTCSession = function(ua) {
   this.local_hold = false;
   this.remote_hold = false;
 
+  this.pending_actions = {
+    actions: [],
+    
+    length: function() {
+      return this.actions.length;
+    },
+    
+    isPending: function(name){
+      var 
+        idx = 0,
+        length = this.actions.length;
+        
+      for (idx; idx<length; idx++) {
+        if (this.actions[idx].name === name) {
+          return true;
+        }
+      }
+      return false;
+    },
+    
+    shift: function() {
+      return this.actions.shift();
+    },
+    
+    push: function(name) {
+      this.actions.push({
+        name: name
+      });
+    },
+    
+    pop: function(name) {
+      var 
+        idx = 0,
+        length = this.actions.length;
+        
+      for (idx; idx<length; idx++) {
+        if (this.actions[idx].name === name) {
+          this.actions.splice(idx,1);
+        }
+      }
+    }
+  };
+  
   // Custom session empty object for high level use
   this.data = {};
 
@@ -449,17 +492,18 @@ RTCSession.prototype.sendRequest = function(method, options) {
  *
  * @returns {Boolean} 
  */
-RTCSession.prototype.isReadyForReinvite = function() {
-  if (this.status !== C.STATUS_WAITING_FOR_ACK && this.status !== C.STATUS_CONFIRMED) {
-    return false;
+RTCSession.prototype.isReadyToReinvite = function() {
+  // rtcMediaHandler is not ready
+  if (!this.rtcMediaHandler.isReady()) {
+    return;
   }
   
   // Another INVITE transaction is in progress
   if (this.dialog.uac_pending_reply === true || this.dialog.uas_pending_reply === true) {
     return false;
+  } else {
+    return true;
   }
-  
-  return true;
 };
  
  
@@ -544,17 +588,32 @@ RTCSession.prototype.isMuted = function() {
  */
 RTCSession.prototype.hold = function() {
 
-  // Check if RTCSession is ready to send a reINVITE
-  if (!this.isReadyForReinvite()) {
-    throw new JsSIP.Exceptions.NotReadyError('Not ready for re-INVITE');
-  }
-  
-  if (this.local_hold === true) {
-    return;
+  if (this.status !== C.STATUS_WAITING_FOR_ACK && this.status !== C.STATUS_CONFIRMED) {
+    throw new JsSIP.Exceptions.InvalidStateError(this.status);
   }
   
   this.toogleMuteAudio(true);
   this.toogleMuteVideo(true);
+  
+  if (!this.isReadyToReinvite()) {
+    /* If there is a pending 'unhold' action, cancel it and don't queue this one
+     * Else, if there isn't any 'hold' action, add this one to the queue
+     * Else, if there is already a 'hold' action, skip
+     */
+    if (this.pending_actions.isPending('unhold')) {
+      this.pending_actions.pop('unhold');
+      return;
+    } else if (!this.pending_actions.isPending('hold')) {
+      this.pending_actions.push('hold');
+      return;
+    } else {
+      return;
+    }
+  } else {
+    if (this.local_hold === true) {
+      return;
+    }
+  }
   
   this.onhold('local');
   
@@ -585,13 +644,8 @@ RTCSession.prototype.hold = function() {
  */
 RTCSession.prototype.unhold = function() {
   
-  // Check if RTCSession is ready to send a reINVITE
-  if (!this.isReadyForReinvite()) {
-    throw new JsSIP.Exceptions.NotReadyError('Not ready for re-INVITE');
-  }
-  
-  if (this.local_hold === false) {
-    return;
+  if (this.status !== C.STATUS_WAITING_FOR_ACK && this.status !== C.STATUS_CONFIRMED) {
+    throw new JsSIP.Exceptions.InvalidStateError(this.status);
   }
   
   if (!this.audioMuted) {
@@ -600,6 +654,26 @@ RTCSession.prototype.unhold = function() {
   
   if (!this.videoMuted) {
     this.toogleMuteVideo(false);
+  }
+  
+  if (!this.isReadyToReinvite()) {
+    /* If there is a pending 'hold' action, cancel it and don't queue this one
+     * Else, if there isn't any 'unhold' action, add this one to the queue
+     * Else, if there is already an 'unhold' action, skip
+     */
+    if (this.pending_actions.isPending('hold')) {
+      this.pending_actions.pop('hold');
+      return;
+    } else if (!this.pending_actions.isPending('unhold')) {
+      this.pending_actions.push('unhold');
+      return;
+    } else {
+      return;
+    }
+  } else {
+    if (this.local_hold === false) {
+      return;
+    }
   }
   
   this.onunhold('local');
@@ -1243,7 +1317,10 @@ RTCSession.prototype.sendReinvite = function(options) {
       });
     },
     function() {
-      self.failed('local', null, JsSIP.C.causes.WEBRTC_ERROR);
+      if (self.isReadyToReinvite()) {
+        self.onReadyToReinvite();
+      }
+      self.reinviteFailed();
     }
   );
 };
@@ -1700,6 +1777,24 @@ RTCSession.prototype.onunmute = function(options) {
     video: options.video
   });
 };
+
+/*
+ * @private
+ */
+RTCSession.prototype.onReadyToReinvite = function() {
+  var action = (this.pending_actions.length() > 0)? this.pending_actions.shift() : null;
+  
+  if (!action) {
+    return;
+  }
+  
+  if (action.name === 'hold') {
+    this.hold();
+  } else if (action.name === 'unhold') {
+    this.unhold();
+  }
+};
+
 
 RTCSession.C = C;
 JsSIP.RTCSession = RTCSession;
